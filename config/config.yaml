@@ -1,0 +1,39 @@
+mysql: mysql+pymysql://root:lmx175586@127.0.0.1/data_copilot
+# classicmodels data_copilot
+
+ai:
+  tries: 1
+  wait: 100
+  data_rows: 5
+
+llm:
+  model_provider: qwen #qwen #openai
+  model: qwen1.5-110b-chat
+  url: ""
+
+# qwen1.5-72b-chat   qwen1.5-110b-chat
+# qwen-turbo  qwen-plus   qwen-max   qwen-long
+# https://dashscope.aliyun.com/
+
+# glm-4
+# https://open.bigmodel.cn
+
+
+server_port: 8087
+
+vector:
+  enabled: true
+  embedding_model: shibing624/text2vec-base-multilingual
+  embedding_device: cuda
+  collection_name: schema_knowledge
+  top_k: 6
+  max_distance: null
+  distance_strategy: cosine
+  connection_string: ""
+  db:
+    driver: psycopg2
+    host: 127.0.0.1
+    port: 5432
+    database: data_copilot_vector
+    user: uucloud
+    password: "lmx175586"
