@@ -1,116 +1,86 @@
 # data-copilot-v2
 
-✨ **Natural Language Database Query System based on langchain and Large Language Models (LLM) and Concurrent Prediction Models**
 
-Through natural language queries, use large language models to intelligently parse database structures, perform intelligent multi-table structured queries and statistical calculations on data, and intelligently generate various charts based on the query results.  
-Use a concurrency prediction model to intelligently predict the optimal concurrency level, balancing generation success rate and LLM invocation costs.  
+✨ **Natural Language Database Query System based on Large Language Models (LLM) and Concurrent Prediction Models**
 
-Multi-threaded concurrent execution is introduced, allowing multiple independent queries to be made simultaneously. This reduces the probability of overall generation failure due to unstable LLM output, improving system stability and response speed.  
-However, blindly increasing concurrency can lead to excessive API resource consumption and performance waste.  
-A BERT plus regression approach is used to predict the optimal concurrency value (Concurrent) based on question difficulty, striking a balance between generation success rate and LLM invocation costs.  
+By asking questions in natural language, the system uses large language models to parse database structures, perform intelligent multi-table structured queries and statistical computation, and generate different kinds of charts from query results.
+A concurrency prediction model is used to estimate the optimal concurrency level, balancing generation success rate and LLM calling cost.
 
-The PyWebIO interactive front-end web interface does not require the OpenAI API and is implemented in 100% pure Python code.
-
-🚩[简体中文文档](./README.md)
-
-[📺demo_video ./demo_video.mp4](./demo_video.mp4)
-
-[📝Related Paper https://github.com/bytesc/data-copilot-v2-controller/blob/master/paper.pdf](https://github.com/bytesc/data-copilot-v2-controller/blob/master/paper.pdf)
-
-### Repositories Related to This Project
-This project consists of two repositories. This repository is for the Agent service.
-
-The following repository is for concurrent prediction model training and the graphical user interface:
-
-- [Concurrent prediction model training and graphical interface https://github.com/bytesc/data-copilot-v2-controller](https://github.com/bytesc/data-copilot-v2-controller)
-
-
-### Related Projects
-- [Interpretable Natural Language Database Query System based on Large Language Models (LLM) https://github.com/bytesc/data-copilot-steps](https://github.com/bytesc/data-copilot-steps)
-- [Natural Language Database Query System based on Large Language Models (LLM) https://github.com/bytesc/data-copilot](https://github.com/bytesc/data-copilot)
-- [Large Language Model (LLM) Agent based on Code Generation and Function Calls](https://github.com/bytesc/data-copilot-functions)
-- [Large Language Model (LLM) Agent based on Code Generation, realizing a WeChat Mini Program for Autonomous Class Management](https://github.com/bytesc/smart-class-back)
-
-
-[Personal website: www.bytesc.top](http://www.bytesc.top)
-
-🔔 For project-related inquiries, feel free to raise an issue in this repository. I typically respond within 24 hours.
+The project introduces multi-threaded concurrent execution and independent repeated asking, reducing overall failure caused by unstable LLM output, and improving stability and response speed.
+However, blindly increasing concurrency can waste API resources and performance.
+By using BERT with regression, the system predicts a suitable Concurrent value based on question difficulty.
+This helps balance generation success rate and LLM calling cost.
+It also provides a Pywebio interactive web interface, does not require OpenAI API, and is implemented with 100% pure Python code.
 
 
 ## Feature Overview
 
-- 1. Natural language querying
-- 2. Implementation of structured queries and statistical computations across multiple tables
-- 3. Smart generation of various types of charts and interactive chart creation
-- 4. Intelligent parsing of database structures, no additional configuration needed for different MySQL databases
-- 5. Support for concurrent multithreaded queries
-- 6. Ability to handle exceptions such as instability in large language model performance
-- 7. Support for local offline deployment (GPU required) using Hugging Face format models (e.g., `qwen-7b`)
-- 8. Support for API interfaces in OpenAI format and Dashscope's `qwen`
+- 1, Ask questions in natural language
+- 2, Perform multi-table structured querying and statistical computation
+- 3, Generate multiple chart types and support interactive chart creation
+- 4, Intelligently parse database schema, no extra setup needed when switching MySQL databases
+- 4, Support multi-threaded concurrent querying
+- 5, Handle exceptions caused by unstable large language model behavior
+- 6, Support local offline deployment (GPU required) with huggingface format models (for example qwen-7b)
+- 7, Support openai-compatible APIs and dashscope qwen APIs
 
+## Technical Innovations
 
-## Technological Innovations
+- Retry questions by feeding back exception and assertion information, improving unstable LLM outputs.
+- Use multi-threaded concurrent asking to improve speed and stability.
+- Use DataFrame mapping of database data to avoid SQL injection risks caused by prompt manipulation.
+- Introduce word embedding models and vector databases to replace pure regular-expression mapping from fuzzy LLM output to deterministic executable code.
 
-- Enable retrying of questions by feeding back information from exceptions and assertions, improving the stability of outputs from LLM.
-- Implement multi-threading for concurrent questioning to enhance response speed and stability.
-- Utilize DataFrame mapping in databases to avoid the risk of SQL injection attacks by manipulating the LLM through induced queries.
-- Introduce word embedding models and vector databases as a replacement for simple regular expressions, in order to address the challenge of mapping fuzzy outputs from LLM to specific system code executions.
+- Use BERT (Bidirectional Encoder Representation from Transformers) to vectorize question text and prompts, then apply multiple regression approaches (linear regression, Logistic regression, nn, Transformer) to predict suitable concurrency and retry counts based on question text.
 
+## Demo Screenshots
 
-- ✨ Utilize BERT (Bidirectional Encoder Representations from Transformers) to **vectorize** the question text and prompt, and then apply linear regression, logistic regression, neural networks (nn), and Transformer models for **regression**. **Predict** the appropriate concurrency levels and retry counts based on the question text, and compare the effectiveness of different models.
-
-
-## Demo
-
-![](./readme_img/img_demo.png)
-![](./readme_img/img_demo2.png)
+This project provides complete demo screenshot resources, including the main system page, natural-language Q and A results, and chart display outcomes.
 
 ## Basic Technical Principles
 
+### Basic Flow of Single-Run Generation
 
-### Basic flow of single-instance generation
+The system uses a closed loop of tool selection, code generation, execution verification, and failure retry to complete each single generation task.
 
-![Basic Flow](./readme_img/t1.png)
+1. After a natural language question is entered, it is combined with preset tool description information into a prompt and sent to the LLM, which selects the proper tool for the task.
 
-1. After the natural language question is input into the system, it will be combined with the pre-set toolset description information to form a prompt and input into the LLM, allowing the LLM to select the appropriate tool for solving the problem.
+2. Retrieve schema information from the database (DataFrame summary).
 
-2. Retrieve the structural information of the data from the database (Dataframe data summary).
+3. Input schema summary and tool suggestions to the LLM so it writes Python code for the task.
 
-3. Input the data summary and tool suggestion information into the LLM to write Python code to solve the problem.
+4. Extract code from the LLM response and run it in the Python interpreter.
 
-4. Extract the code from the LLM's response and execute it with the Python interpreter.
+5. If execution raises exceptions, combine exception messages and the code into a new prompt and retry (back to step 3), until success or retry limit reached.
 
-5. If an exception occurs during code execution, combine the exception information with the problem code to form a new prompt and re-input it into the LLM for another attempt (return to step `3`). Continue until the code runs successfully or the maximum number of retries is exceeded.
+6. If execution does not raise exceptions, assert output type and format. If assertion fails, combine assertion feedback and code into a new prompt and retry (back to step 3), until assertion passes or retry limit reached.
 
-6. If no exception occurs during code execution, assert the program output. If it is not the expected type, combine the assertion information with the problem code to form a new prompt and re-input it into the LLM for another attempt (return to step `3`). Continue until the assertion is successful or the maximum number of retries is exceeded.
+7. Display successful output (charts) in the user interface, and start interactive charting based on output data.
 
-7. Display the successful code execution output (charts) on the user interface and launch the interactive plotting interface based on the output data.
+#### Retries Learning
 
-#### Learning for Retries
+The retries learning module predicts suitable retry counts from question-difficulty features, improving success rate while controlling response time.
 
-![](./readme_img/t10.png)
-
-Using the BERT (Bidirectional Encoder Representation from Transformers) combined with `regression` , predict the optimal retries value based on the difficulty of the question. Find a balance between the success rate of generation and the number of retries to improve response speed.
+Using BERT with regression, the system predicts the best retries value based on question difficulty, balancing generation success rate and retry count to improve response speed.
 
 
-### Concurrency generation control
+### Concurrent Generation Control
 
-![Concurrency Control](./readme_img/t3.png)
+The concurrent generation control module dynamically balances success rate and calling cost, avoiding waste caused by blindly increasing concurrency.
 
-Repeated feedback of exceptions and assertions can cause the prompt to become increasingly long, causing the LLM to lose focus and affect the generation effect. The LLM's first incorrect response can also affect subsequent generations. Starting over may yield better results.
+Repeated exception and assertion feedback can make prompts longer and longer, reducing LLM attention and generation quality. The first incorrect LLM answer can also affect later outputs, so starting over independently can sometimes work better.
 
-Therefore, multi-threaded concurrent execution is introduced to ask questions independently multiple times, reducing the probability of overall generation failure caused by unstable LLM outputs, and improving system stability and response speed.
+Therefore, the system introduces multi-threaded concurrent execution and independent repeated asking, reducing total failure probability caused by unstable LLM behavior and improving stability and response speed.
 
-#### Learning for Concurrent
+#### Concurrent Learning
 
-![](./readme_img/t11.png)
+The concurrent learning module predicts an optimal concurrency number with regression models to improve throughput and stability.
 
-Using BERT combined with `regression`, predict the best number of concurrent requests (Concurrent) based on the difficulty of the question. Find a balance between the success rate of generation and the cost of LLM (Large Language Model) invocation to improve response speed.
-
+Using BERT with regression, the system predicts an optimal Concurrent value based on question difficulty, balancing generation success rate and LLM calling cost to improve response speed.
 
 ## How to Use
 
-### Installing Dependencies
+### Install Dependencies
 
 Python version 3.9
 
@@ -118,24 +88,22 @@ Python version 3.9
 pip install -r requirement.txt
 ```
 
-### Fill in Configuration Information
+### Fill in Configuration
 
-The configuration file is located at `./config/config.yaml`.
+The configuration file is ./config/config.yaml.
 
 #### Database Configuration
+Just provide the connection string. The model reads database schema automatically, and no extra configuration is needed.
 
-Simply provide the connection information. The model will automatically read the database structure, so no additional configuration is needed.
-
-```yaml
+```yml
 mysql: mysql+pymysql://root:123456@127.0.0.1/data_copilot
 # mysql: mysql+pymysql://username:password@host:port/database
 ```
 
 #### Large Language Model Configuration
+If you use dashscope qwen API (recommended):
 
-If using the Dashscope `qwen` API (recommended):
-
-```yaml
+```yml
 llm:
   model_provider: qwen #qwen #openai
   model: qwen1.5-110b-chat
@@ -143,93 +111,44 @@ llm:
 
 # qwen1.5-72b-chat   qwen1.5-110b-chat
 # qwen-turbo  qwen-plus   qwen-max   qwen-long
-# https://dashscope.aliyun.com/
 ```
 
-Also, in `llm_access/LLM.py`, uncomment the following line:
+If you use openai-compatible API (example shown for glm compatible API):
 
-
-```yaml
+```yml
 llm:
   model_provider: openai
   model: glm-4
-  url: "https://open.bigmodel.cn/api/paas/v4/"
+  url: "Fill your openai-compatible API endpoint here"
 
 # glm-4
-# https://open.bigmodel.cn
 ```
 
+If local offline deployment is needed, related code is in ./llm_access/qwen_access.py.
 
-If offline deployment is needed, relevant code is in `./llm_access/qwen_access.py`.
+#### Obtain API Key
 
-#### Obtaining API Key
+If you obtain qwen API key from Alibaba Cloud Dashscope console,
 
-If obtaining the API key from [Alibaba Cloud Dashscope](https://dashscope.console.aliyun.com/) for the `qwen` large language model,
+save api-key to llm_access/api_key_qwen.txt.
 
-save the API key to `llm_access/api_key_qwen.txt`.
+If you use openai-compatible API key,
 
-If using the API key for the `openai` format API,
+save api-key to llm_access/api_key_openai.txt.
 
-save the API key to `llm_access/api_key_openai.txt`.
+### Run
 
-### Running
-
-`main.py` is the entry point of the project. Running this file will start the server.
+main.py is the project entry point. Run it to start the server.
 
 ```bash
 python main.py
 ```
 
-This repository contains the backend API. You can run `ask_test.py` for testing.
+This repository is backend API. You can run ask_test.py for testing.
 
 ```bash
 python ask_test.py
 ```
 
-![](./readme_img/demo.png)
-
-The generated charts will be saved to `.temp.html` or `.temp.png`.
-
-Concurrent prediction model training and deployment, with a graphical interface based on PyWebIO:
-- [Concurrent prediction model training and graphical interface https://github.com/bytesc/data-copilot-v2-controller](https://github.com/bytesc/data-copilot-v2-controller)
-
-![](./readme_img/img_demo.png)
-
-### Potential Future Directions
-
-The challenge of this project lies in mapping from **user's natural language vague queries** and **natural language responses from a large language model** to **deterministic data** that traditional non-AI computer code can handle.
-
-At its current stage, this project, along with some other open-source implementations (such as `langchain agent`), relies on **repeated questioning** to elicit responses from the large language model that closely match the predefined format of natural language responses. Then, **regular expressions** are used to match the data.
-
-While large language models offer high flexibility and can implement various complex intelligent database queries, statistics, and plotting functions, they face fatal bottlenecks in terms of input-output scale. They cannot directly handle extremely long texts or large datasets. Therefore, they may not perform well when faced with structural information of large-scale data (e.g., hundreds of tables).
-
-Although large language models can to some extent control relatively deterministic output formats through prompts, they are fundamentally still natural language outputs, exhibiting unstable output characteristics and emergent problems. They cannot guarantee acceptable results or the rationality and accuracy of the results.
-
-Thus, innovation in this area may be a possible future direction for this project.
-
-#### Vector Databases and Word Embedding Models
-
-![](./readme_img/t9.png)
-
-Introducing word embedding models (such as `text2vec-base-multilingual`) and vector databases (such as `PGVector`) can improve the handling of large-scale data.
-
-By transforming large-scale data into vectors on a per-item basis and mapping vocabulary into a lower-dimensional vector space, semantic relationships between words can be captured. By storing these vectors in a vector database, we can swiftly perform similarity queries, clustering, and other operations, facilitating effective processing of large-scale data.
-Moreover, vector databases can match only predetermined results that are semantically closest, mitigating the instability and emergent issues often associated with large language models.
-
-The integration of vector databases and word embedding models helps overcome the instability of large language models and their limitations in handling large-scale data. By combining the stability and reliability of vector databases with the intelligence and flexibility of large language models, efficient and stable processing and analysis of large-scale data can be achieved.
-
-The relevant technical resources can be found in the `./pgv/` folder.
-
-#### Related Links
-
-Word Embedding Models:
-
-- `text2vec-large-chinese` [huggingface](https://huggingface.co/GanymedeNil/text2vec-large-chinese) [hf-mirror](https://hf-mirror.com/GanymedeNil/text2vec-large-chinese)
-- `text2vec-base-multilingual` [huggingface](https://huggingface.co/shibing624/text2vec-base-multilingual) [hf-mirror](https://hf-mirror.com/shibing624/text2vec-base-multilingual)
-
-Vector Databases:
-
-- `PGVector` [DockerHub](https://hub.docker.com/r/ankane/pgvector) [dockerproxy](https://dockerproxy.com/docs)
-
-To be continued...
+Generated charts are saved to .temp.html or .temp.png.
 
