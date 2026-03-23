@@ -74,9 +74,18 @@ def _build_execution_feedback(
         if data and isinstance(data[0], dict):
             available_tables = list(data[0].keys())
         error_msg += (
-            "\nA KeyError usually indicates a missing column name after joins. "
+            "\nA KeyError indicates your generated code referenced a missing key/column. "
+            "You must use exact table keys from dataframes_dict and exact column names from those tables. "
+            "Do not invent table names from examples. "
             f"Available table keys: {available_tables}."
         )
+        if data and isinstance(data[0], dict):
+            columns_str = "; ".join(
+                f"{table_name}: {list(table_df.columns)[:10]}{'...' if len(table_df.columns) > 10 else ''}"
+                for table_name, table_df in list(data[0].items())[:5]
+            )
+            if columns_str:
+                error_msg += f"\nFirst columns preview: {columns_str}"
         if len(data) > 1:
             error_msg += f"\nForeign key constraints: {data[1]}"
 
@@ -107,6 +116,9 @@ def _execute_generated_code(ans_code: str, data_dict: Dict[str, pd.DataFrame]) -
     if not callable(process_data):
         raise ValueError("Generated code must define a callable function named process_data.")
     return process_data(data_dict)
+
+
+
 
 
 def get_final_prompt(data: List[Any], question: str) -> str:

@@ -1,149 +1,140 @@
-# data-copilot-v2 Workflow
+# Database Query System Workflow
 
-## 1. Purpose
+## 1. 文档目标
 
-This document describes the end-to-end runtime workflow of `data-copilot-v2`, including the newly integrated modules:
+本文档统一说明 Agent 的运行流程，采用与 Controller 完全一致的章节格式，重点回答三件事：
 
-1. Word embedding module (`pgv/embedding.py`)
-2. Vector database module (`pgv/write_db.py`, `pgv/ask.py`)
+1. Agent 如何承接并发预测模型输出（`concurrent`、`retries`）并执行请求。
+2. 图形界面相关接口（graph/echart）在 Agent 侧的处理链路。
+3. 启动各个 `.py` 文件的顺序与每个文件的职责。
 
-The goal is to combine deterministic semantic retrieval with LLM flexibility, improving prompt stability and schema grounding.
+---
 
+## 2. 总体架构
 
-## 2. Repository Responsibilities
+Agent 包含两条主线：
 
-### 2.1 data-copilot-v2 (this repo)
+1. 并发预测模型协同主线（重点）
+	- Controller 预测并发参数，Agent 接收参数后执行并发候选生成、重试和早停。
+2. 图形界面服务主线
+	- FastAPI 提供 `/ask/graph-steps`、`/ask/echart-file-2` 等接口，返回图片或 HTML 内容。
 
-1. Convert user natural language questions into executable Python code.
-2. Load relational schema and sample data from MySQL.
-3. Run exception/assertion feedback retries.
-4. Build semantic schema knowledge with embedding + PGVector.
-5. Inject semantic retrieval hints into the final prompt.
+核心关系：
 
-### 2.2 data-copilot-v2-controller (external repo)
+1. Agent 不训练并发模型，但负责消费预测结果并落地执行。
+2. Agent 的返回质量直接影响 Controller 的日志采样与后续模型训练。
 
-1. UI and orchestration logic.
-2. Predict `concurrent` and `retries` values.
-3. Collect data for offline training loops.
+---
 
+## 3. 并发预测模型启动流程（重点）
 
-## 3. Startup Workflow
+### 3.1 阶段 A：Agent 基础初始化
 
-### 3.1 Configuration Loading
+1. `config/get_config.py`
+	- 读取并校验 `config/config.yaml`，初始化 `mysql`、`llm`、`ai`、`vector`。
 
-1. `config/get_config.py` loads YAML from `config/config.yaml`.
-2. Required sections are validated: `mysql`, `llm`, `ai`.
-3. Optional `vector` section is normalized with defaults.
-4. Runtime directories are created (`tmp_imgs`).
+2. `data_access/db_conn.py`
+	- 创建数据库连接并启动连通性校验。
 
-### 3.2 Infrastructure Initialization
+3. `llm_access/LLM.py`
+	- 初始化模型提供商并构建可调用的 LLM 客户端。
 
-1. `data_access/db_conn.py` builds SQLAlchemy engine and verifies DB connectivity.
-2. `llm_access/LLM.py` initializes the configured model provider.
-3. FastAPI startup calls `fetch_data()`.
-4. `fetch_data()` loads schema payload and triggers `sync_schema_knowledge(...)`.
+4. `main.py`
+	- 启动 FastAPI 服务，并在 startup 中 `fetch_data()` 缓存数据库结构信息。
 
+### 3.2 阶段 B：并发参数协同执行
 
-## 4. Schema Vectorization Workflow
+1. Controller 侧 `main.py` 会把预测出的并发参数写入请求体：
+	- `concurrent: [c1, c2]`
+	- `retries: [r1, r2]`
 
-### 4.1 Embedding Module (`pgv/embedding.py`)
+2. Agent 侧 `main.py` 接收请求后，按接口类型拆成单阶段或双阶段任务。
 
-1. Resolve model id/path from `vector.embedding_model`.
-2. Resolve device from `vector.embedding_device`.
-3. Build and cache `HuggingFaceEmbeddings` instance.
-4. Reuse cache across requests to reduce cold-start overhead.
+3. `ask_ai/ask_ai_for_graph.py`、`ask_ai/ask_ai_for_echart.py`、`ask_ai/ask_ai_for_pd.py`
+	- 基于 `concurrent` 创建线程池并行生成候选答案。
+	- 基于 `retries` 在候选内部执行失败重试。
+	- 基于 `ai.wait` 达到成功阈值后提前返回。
 
-### 4.2 Vector Store Module (`pgv/write_db.py`)
-
-1. Build PG connection string from either:
-2. `vector.connection_string`
-3. or `vector.db.*` fields.
-4. Open `PGVector` store with configured distance strategy.
-5. Rebuild collection when schema hash changes.
-6. Run similarity search with score for runtime retrieval.
-
-### 4.3 Schema Knowledge Builder (`pgv/ask.py`)
-
-1. Convert runtime schema payload into semantic documents:
-2. table schema docs
-3. foreign-key relation docs
-4. (optional) comment-enriched column descriptors
-5. Hash document payload to avoid unnecessary re-indexing.
-6. Rebuild collection only when schema changed or force rebuild is requested.
-
-
-## 5. Online Inference Workflow
-
-### 5.1 Prompt Construction (`ask_ai/ask_api.py`)
-
-For each candidate generation:
-
-1. Build base prompt with question, sampled tables, keys, and comments.
-2. Query vector DB using the original user question.
-3. Append semantic hints to prompt when retrieval is available.
-4. Append strict output constraints.
-
-This turns the final prompt into:
-
-`Question + Structured Schema Context + Semantic Vector Hints + Output Contract`
-
-### 5.2 Code Generation and Execution
-
-1. Call LLM to generate Python code block.
-2. Parse code block from model output.
-3. Execute `process_data(dataframes_dict)`.
-4. Validate output type using task-specific assertions.
-5. On failure, feed back exception/assertion messages and retry.
-
-
-## 6. Concurrency and Success Semantics
-
-Each task module (`ask_ai_for_pd.py`, `ask_ai_for_graph.py`, `ask_ai_for_echart.py`) uses:
-
-1. Thread-level parallel candidate generation (`concurrent`).
-2. Per-candidate retry budget (`retries`).
-3. Round-level retry loop (`ai.tries`).
-4. Early stop when success count reaches `ai.wait`.
-
-Success ratio remains:
+4. 成功率语义（每轮）保持为：
 
 $$
-\mathrm{success} = \frac{\text{successful candidates in current round}}{\text{requested concurrent workers}}
+\mathrm{success} = \frac{\text{当前轮成功候选数}}{\text{本轮并发候选总数}}
 $$
 
+### 3.3 阶段 C：提示增强与执行闭环
 
-## 7. Fault Tolerance and Degradation
+1. `ask_ai/ask_api.py`
+	- 组装基础 Prompt（问题 + schema + 键关系 + 约束）。
+	- 可选叠加 `pgv/ask.py` 的向量检索提示。
 
-Vector modules are integrated with safe degradation:
+2. LLM 生成代码后执行 `process_data(dataframes_dict)`。
 
-1. If vector is disabled (`vector.enabled: false`), core pipeline runs normally.
-2. If embedding or PGVector initialization fails, prompt generation still proceeds.
-3. If retrieval fails, only semantic hint block is skipped.
-4. Main business APIs still return normal responses from the classic pipeline.
+3. 通过断言/异常反馈回输触发重试，最终返回结构化响应给 Controller。
 
+---
 
-## 8. Operational Steps
+## 4. 图形界面流程
 
-### 8.1 Enable Vector Retrieval
+1. 图形界面入口在 Controller 的 `PyWebIO` 页面，但图形生产由 Agent 负责。
+2. Agent 的图形接口包括：
+	- `/ask/graph-steps`：返回 PNG 及 `image_data(base64)`。
+	- `/ask/echart-file-2`：返回 HTML 内容及文件信息。
+3. Agent 在接口层完成：请求参数校验 -> 并发执行 -> 结果打包。
+4. Controller 收到响应后渲染图片或保存 HTML，形成最终可视化交互。
 
-1. Set `vector.enabled: true` in `config/config.yaml`.
-2. Configure either:
-3. `vector.connection_string`
-4. or `vector.db` connection fields.
-5. Install dependencies from `requirement.txt`.
+图形界面与并发模型关系：
 
-### 8.2 Initialize PostgreSQL
+1. 界面层负责“展示与交互”。
+2. Agent 负责“并发执行与结果产出”。
+3. 两者通过统一 HTTP 协议解耦协作。
 
-1. Create a PostgreSQL database with `pgvector` extension.
-2. Optional: run `pgv/create_table.sql` manually.
-3. Start service with `python main.py`.
-4. On startup, schema semantic index is built automatically.
+---
 
+## 5. 关键文件职责
 
-## 9. Architectural Benefits
+1. `main.py`：FastAPI 服务入口与 API 编排。
+2. `ask_ai/ask_ai_for_graph.py`：图像图表并发生成链路。
+3. `ask_ai/ask_ai_for_echart.py`：ECharts HTML 并发生成链路。
+4. `ask_ai/ask_ai_for_pd.py`：表格/数据输出并发生成链路。
+5. `ask_ai/ask_api.py`：Prompt 组装、执行与反馈重试闭环。
+6. `data_access/read_db.py`：读取数据表、外键、注释等结构信息。
+7. `data_access/db_conn.py`：数据库连接初始化与验证。
+8. `llm_access/LLM.py`：LLM 客户端初始化。
+9. `pgv/embedding.py`：Embedding 模型加载与设备配置。
+10. `pgv/write_db.py`、`pgv/ask.py`：向量库写入、检索与 schema 同步。
 
-1. Better schema grounding for fuzzy user questions.
-2. Reduced reliance on brittle regex-only mapping.
-3. More deterministic joins/columns selection via semantic hints.
-4. Backward-compatible integration with low risk to existing APIs.
-5. Clear split between embedding, vector storage, and retrieval orchestration.
+---
+
+## 6. 推荐启动顺序
+
+```bash
+# 1) 启动 Agent 服务
+python main.py
+
+# 2) （可选）验证图形接口
+python ask_test.py
+
+# 3) 再启动 Controller（在线并发预测生效）
+# 在 Controller 项目执行 python main.py
+```
+
+说明：
+
+1. Agent 必须先启动，Controller 才能调用 `/ask/*` 接口。
+2. Controller 的并发预测模型输出参数由 Agent 在运行时执行。
+
+---
+
+## 7. 常见问题
+
+1. Controller 提示接口超时
+	- 原因：Agent 未启动或执行链路耗时过高。
+	- 处理：先确认 Agent 端口可达，再调高超时与重试。
+
+2. Agent 启动时报数据库错误
+	- 原因：`config/config.yaml` 中 `mysql` 配置错误或数据库未创建。
+	- 处理：修正连接串并检查库权限。
+
+3. 向量检索初始化失败
+	- 原因：`vector` 配置或 PGVector 依赖未就绪。
+	- 处理：可先关闭 `vector.enabled`，核心接口仍可运行。

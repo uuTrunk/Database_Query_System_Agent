@@ -37,30 +37,23 @@ def get_ask_pd_prompt(req):
         str: Full prompt text describing pandas transformation constraints and examples.
     """
     question = req.question
-    example_code = """ 
-       the Python function should return a single pandas dataframe only!!! 
-       do not draw any graph at this step.
-       
-       ### CRITICAL RULES FOR MULTI-TABLE JOINS ###
-       1. If you join/merge tables that share the same column names (e.g., 'Population' in both 'city' and 'country'), 
-          ALWAYS specify 'suffixes' in the merge function, for example: 
-          merged_df = pd.merge(df1, df2, on='ID', suffixes=('_left', '_right'))
-       2. NEVER assume a column name exists after a join without considering these suffixes.
-       3. Use the renamed columns (like 'Population_left') in subsequent filters or selections.
-       
-       here is an example: 
-       ```python
-       def process_data(dataframes_dict):
-           import pandas as pd
-           city = dataframes_dict['city']
-           country = dataframes_dict['country']
-           # Explicitly handle suffixes to avoid KeyError
-           merged = pd.merge(city, country, left_on='CountryCode', right_on='Code', suffixes=('_city', '_country'))
-           # Use the explicit column name
-           result = merged.nsmallest(5, 'Population_city')[['Name_city', 'Population_city']]
-           return result
-       ```
-       """
+    example_code = """
+         the Python function should return a single pandas dataframe only!!!
+         do not draw any graph at this step.
+
+         ### CRITICAL RULES ###
+         1. Use only table names that actually exist in dataframes_dict keys.
+         2. Never hardcode table names from prior examples (such as city/country).
+         3. Before accessing a table, ensure the key matches an existing key exactly.
+         4. NEVER add data back to dataframes_dict. Do NOT modify the input dictionary.
+         5. If you join/merge tables that share column names, always set suffixes explicitly.
+         6. After merge, use the suffixed column names (like ColumnName_left or ColumnName_right).
+         7. Do NOT call process_data() recursively or reference function names inside.
+         8. Never use nested function calls. Only direct dataframe operations allowed.
+         9. Always return a plain pandas DataFrame; never return the dataframes_dict.
+
+         Work with actual table/column names shown in the schema sample, not made-up ones.
+         """
     return question + example_code
 
 

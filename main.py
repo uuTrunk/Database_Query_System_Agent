@@ -22,7 +22,13 @@ from utils.logger import setup_logger
 from utils.manuel_mode import pandas_html
 from utils.paths import APP_LOG_FILE, ensure_runtime_directories
 
-plt.rcParams["font.sans-serif"] = ["SimHei"]
+plt.rcParams["font.sans-serif"] = [
+    "Noto Sans CJK SC",
+    "WenQuanYi Zen Hei",
+    "Microsoft YaHei",
+    "SimHei",
+    "DejaVu Sans",
+]
 plt.rcParams["axes.unicode_minus"] = False
 
 logger = setup_logger(__name__, log_file=str(APP_LOG_FILE), level=logging.INFO)
