@@ -162,7 +162,9 @@ def get_final_prompt(data: List[Any], question: str) -> str:
         "Do not include explanations, shell commands, or comments. "
         "Do not call the function. Do not print anything. "
         "Import required modules inside the function. "
-        "Do not mock data."
+        "Do not mock data. "
+        "Apply query optimization principles: filter rows as early as possible before merge/groupby/sort, "
+        "select only required columns before joins, avoid Cartesian products, and avoid unnecessary full-table sorting."
     )
 
     all_prompt = pre_prompt + question + "\n" + data_prompt + str(data_slice)

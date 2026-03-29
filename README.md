@@ -95,7 +95,7 @@ pip install -r requirement.txt
 #### 数据库配置
 连接即可，模型会自动读取数据库结构，无需额外配置
 ```yml
-mysql: mysql+pymysql://root:123456@127.0.0.1/data_copilot
+mysql: mysql+pymysql://root:123456@127.0.0.1/world
 # mysql: mysql+pymysql://用户名:密码@地址:端口/数据库名
 ```
 
@@ -145,13 +145,9 @@ main.py 是项目入口，运行此文件即可启动服务器
 python main.py
 ```
 
-本仓库为后端 api。可用运行 `ask_test.py` 进行测试。
+本仓库为后端 api。可通过 Controller 项目调用 `/ask/graph-steps` 进行联调测试。
 
-```bash
-python ask_test.py
-```
-
-生成的图表会保存到 `.temp.html` 或  `.temp.png`
+生成的图表会保存到 `.temp.png`
 
 
 

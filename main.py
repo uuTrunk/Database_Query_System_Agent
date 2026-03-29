@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from ask_ai import ask_ai_for_echart, ask_ai_for_graph, ask_ai_for_pd, ask_api
+from ask_ai import ask_ai_for_graph, ask_ai_for_pd, ask_api
 import data_access.read_db
 from config.get_config import config_data
 from llm_access.LLM import get_llm
@@ -401,130 +401,6 @@ async def ask_graph_steps(original_request: AskRequestSteps) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/ask/echart-block")
-async def ask_echart_block(request: AskRequest) -> Dict[str, Any]:
-    """Generate ECharts HTML content directly and persist it to a file.
-
-    Args:
-        request (AskRequest): Request payload containing question, concurrency, and retries.
-
-    Returns:
-        dict[str, Any]: Success response with HTML block and file path or standardized failure payload.
-    """
-    try:
-        dict_data = fetch_data()
-        result, retries_used, all_prompt, success = ask_ai_for_echart.ask_echart_block(dict_data, request, llm)
-        if result is None:
-            return _build_failure_response(
-                retries_used=retries_used,
-                prompt=all_prompt,
-                success=0.0,
-                extra_fields={"html": "", "file": ""},
-            )
-
-        file_path = path_tools.generate_html_path()
-        _write_text_file(file_path, result)
-        return {
-            "code": 200,
-            "retries_used": retries_used,
-            "html": _read_text_file(file_path),
-            "file": file_path,
-            "prompt": all_prompt,
-            "success": success,
-        }
-    except Exception as exc:
-        logger.exception("/ask/echart-block failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/ask/echart-file")
-async def ask_echart_file(request: AskRequest) -> Dict[str, Any]:
-    """Generate an ECharts HTML file and return its content.
-
-    Args:
-        request (AskRequest): Request payload containing question, concurrency, and retries.
-
-    Returns:
-        dict[str, Any]: Success response with generated HTML content or standardized failure payload.
-    """
-    try:
-        dict_data = fetch_data()
-        result, retries_used, all_prompt, success = ask_ai_for_echart.ask_echart_file(dict_data, request, llm)
-        if result is None:
-            return _build_failure_response(
-                retries_used=retries_used,
-                prompt=all_prompt,
-                success=0.0,
-                extra_fields={"html": "", "file": ""},
-            )
-
-        return {
-            "code": 200,
-            "retries_used": retries_used,
-            "html": _read_text_file(result),
-            "file": result,
-            "prompt": all_prompt,
-            "success": success,
-        }
-    except Exception as exc:
-        logger.exception("/ask/echart-file failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/ask/echart-file-2")
-async def ask_echart_file_2(original_request: AskRequestSteps) -> Dict[str, Any]:
-    """Run a two-stage pipeline: dataframe filtering then ECharts file generation.
-
-    Args:
-        original_request (AskRequestSteps): Two-stage request payload.
-
-    Returns:
-        dict[str, Any]: Success response with final HTML output or standardized failure payload.
-    """
-    retries_used_1 = 0
-    retries_used_2 = 0
-    prompt_1 = ""
-    prompt_2 = ""
-
-    try:
-        dict_data = fetch_data()
-        request_stage_1, request_stage_2 = _build_step_requests(original_request)
-
-        result_1, retries_used_1, prompt_1, success_1 = ask_ai_for_pd.ask_pd(dict_data, request_stage_1, llm)
-        if result_1 is None:
-            return _build_failure_response(
-                retries_used=[retries_used_1, retries_used_2],
-                prompt=[prompt_1, prompt_2],
-                success=[0.0, 0.0],
-                extra_fields={"html": "", "file": ""},
-            )
-
-        result_2, retries_used_2, prompt_2, success_2 = ask_ai_for_echart.ask_echart_file(
-            [{"data": result_1}],
-            request_stage_2,
-            llm,
-        )
-        if result_2 is None:
-            return _build_failure_response(
-                retries_used=[retries_used_1, retries_used_2],
-                prompt=[prompt_1, prompt_2],
-                success=[0.0, 0.0],
-                extra_fields={"html": "", "file": ""},
-            )
-
-        return {
-            "code": 200,
-            "retries_used": [retries_used_1, retries_used_2],
-            "html": _read_text_file(result_2),
-            "file": result_2,
-            "prompt": [prompt_1, prompt_2],
-            "success": [success_1, success_2],
-        }
-    except Exception as exc:
-        logger.exception("/ask/echart-file-2 failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @app.post("/prompt/pd")
 async def prompt_pd(request: AskRequest) -> Dict[str, Any]:
     """Build and return the final prompt used for pandas generation.
@@ -559,39 +435,6 @@ async def prompt_graph(request: AskRequest) -> Dict[str, Any]:
             tmp_file=True,
             img_type=False,
         ),
-    )
-    return {"code": 200, "all_prompt": all_prompt}
-
-
-@app.post("/prompt/echart-block")
-async def prompt_echart_block(request: AskRequest) -> Dict[str, Any]:
-    """Build and return the final prompt used for ECharts block generation.
-
-    Args:
-        request (AskRequest): Request payload containing question and generation settings.
-
-    Returns:
-        dict[str, Any]: Prompt preview payload.
-    """
-    dict_data = fetch_data()
-    all_prompt = ask_api.get_final_prompt(dict_data, ask_ai_for_echart.get_ask_echart_block_prompt(request))
-    return {"code": 200, "all_prompt": all_prompt}
-
-
-@app.post("/prompt/echart-file")
-async def prompt_echart_file(request: AskRequest) -> Dict[str, Any]:
-    """Build and return the final prompt used for ECharts file generation.
-
-    Args:
-        request (AskRequest): Request payload containing question and generation settings.
-
-    Returns:
-        dict[str, Any]: Prompt preview payload.
-    """
-    dict_data = fetch_data()
-    all_prompt = ask_api.get_final_prompt(
-        dict_data,
-        ask_ai_for_echart.get_ask_echart_file_prompt(request, tmp_file=True),
     )
     return {"code": 200, "all_prompt": all_prompt}
 

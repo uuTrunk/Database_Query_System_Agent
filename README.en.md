@@ -96,7 +96,7 @@ The configuration file is ./config/config.yaml.
 Just provide the connection string. The model reads database schema automatically, and no extra configuration is needed.
 
 ```yml
-mysql: mysql+pymysql://root:123456@127.0.0.1/data_copilot
+mysql: mysql+pymysql://root:123456@127.0.0.1/world
 # mysql: mysql+pymysql://username:password@host:port/database
 ```
 
@@ -144,11 +144,7 @@ main.py is the project entry point. Run it to start the server.
 python main.py
 ```
 
-This repository is backend API. You can run ask_test.py for testing.
+This repository is backend API. You can test end-to-end by calling `/ask/graph-steps` from the Controller project.
 
-```bash
-python ask_test.py
-```
-
-Generated charts are saved to .temp.html or .temp.png.
+Generated charts are saved to .temp.png.
 

@@ -1,5 +1,5 @@
-mysql: mysql+pymysql://root:lmx175586@127.0.0.1/data_copilot
-# classicmodels data_copilot
+mysql: mysql+pymysql://root:lmx175586@127.0.0.1/world
+# world
 
 ai:
   tries: 1

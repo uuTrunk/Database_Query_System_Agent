@@ -1,5 +1,5 @@
 from threading import Lock
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 from sqlalchemy import inspect, text
@@ -11,10 +11,26 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 tables_data = None
+foreign_keys_cache = None
+comments_cache = None
 tables_data_lock = Lock()
 
 
-def get_foreign_keys() -> Dict[str, Dict[str, str]]:
+def _build_select_all_query(table_name: str, columns: List[str]):
+    """Build a deterministic SELECT statement with explicit columns.
+
+    Args:
+        table_name: Physical table name from SQLAlchemy inspector.
+        columns: Ordered table column names from SQLAlchemy inspector.
+
+    Returns:
+        sqlalchemy.sql.elements.TextClause: SQL text object.
+    """
+    quoted_columns = ", ".join(f"`{column}`" for column in columns)
+    return text(f"SELECT {quoted_columns} FROM `{table_name}`")
+
+
+def get_foreign_keys(inspector=None) -> Dict[str, Dict[str, str]]:
     """Load foreign-key relationships for all tables in the current database.
 
     Args:
@@ -28,7 +44,7 @@ def get_foreign_keys() -> Dict[str, Dict[str, str]]:
         RuntimeError: If database metadata introspection fails.
     """
     try:
-        inspector = inspect(engine)
+        inspector = inspector or inspect(engine)
         foreign_keys: Dict[str, Dict[str, str]] = {}
         for table_name in inspector.get_table_names():
             fks = inspector.get_foreign_keys(table_name)
@@ -50,7 +66,7 @@ def get_foreign_keys() -> Dict[str, Dict[str, str]]:
         raise RuntimeError(f"Failed to load foreign keys: {exc}") from exc
 
 
-def get_table_and_column_comments() -> Tuple[Dict[str, str], Dict[str, Dict[str, str]]]:
+def get_table_and_column_comments(inspector=None) -> Tuple[Dict[str, str], Dict[str, Dict[str, str]]]:
     """Load table comments and column comments for all tables.
 
     Args:
@@ -66,7 +82,7 @@ def get_table_and_column_comments() -> Tuple[Dict[str, str], Dict[str, Dict[str,
         RuntimeError: If metadata loading fails.
     """
     try:
-        inspector = inspect(engine)
+        inspector = inspector or inspect(engine)
         table_comments: Dict[str, str] = {}
         column_comments: Dict[str, Dict[str, str]] = {}
         for table_name in inspector.get_table_names():
@@ -83,7 +99,7 @@ def get_table_and_column_comments() -> Tuple[Dict[str, str], Dict[str, Dict[str,
         raise RuntimeError(f"Failed to load table comments: {exc}") from exc
 
 
-def _load_tables_data() -> Dict[str, pd.DataFrame]:
+def _load_tables_data(inspector=None) -> Dict[str, pd.DataFrame]:
     """Read all database tables into pandas DataFrames.
 
     Args:
@@ -96,11 +112,12 @@ def _load_tables_data() -> Dict[str, pd.DataFrame]:
         RuntimeError: If table listing or data querying fails.
     """
     try:
-        inspector = inspect(engine)
+        inspector = inspector or inspect(engine)
         loaded_tables: Dict[str, pd.DataFrame] = {}
         with engine.connect() as connection:
             for table_name in inspector.get_table_names():
-                query = text(f"SELECT * FROM `{table_name}`")
+                columns = [str(column.get("name")) for column in inspector.get_columns(table_name)]
+                query = _build_select_all_query(table_name, columns)
                 loaded_tables[table_name] = pd.read_sql(query, connection)
         logger.info("Loaded %d tables from database", len(loaded_tables))
         return loaded_tables
@@ -122,12 +139,16 @@ def get_data_from_db(force_reload: bool = False):
         - ``comments`` is ``(table_comments, column_comments)``.
     """
     global tables_data
-    if force_reload or tables_data is None:
-        with tables_data_lock:
-            if force_reload or tables_data is None:
-                tables_data = _load_tables_data()
+    global foreign_keys_cache
+    global comments_cache
 
-    keys = get_foreign_keys()
-    comments = get_table_and_column_comments()
-    return tables_data, keys, comments
+    if force_reload or tables_data is None or foreign_keys_cache is None or comments_cache is None:
+        with tables_data_lock:
+            if force_reload or tables_data is None or foreign_keys_cache is None or comments_cache is None:
+                inspector = inspect(engine)
+                tables_data = _load_tables_data(inspector=inspector)
+                foreign_keys_cache = get_foreign_keys(inspector=inspector)
+                comments_cache = get_table_and_column_comments(inspector=inspector)
+
+    return tables_data, foreign_keys_cache, comments_cache
 

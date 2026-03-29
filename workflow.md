@@ -5,7 +5,7 @@
 本文档统一说明 Agent 的运行流程，采用与 Controller 完全一致的章节格式，重点回答三件事：
 
 1. Agent 如何承接并发预测模型输出（`concurrent`、`retries`）并执行请求。
-2. 图形界面相关接口（graph/echart）在 Agent 侧的处理链路。
+2. 图形界面相关接口（graph）在 Agent 侧的处理链路。
 3. 启动各个 `.py` 文件的顺序与每个文件的职责。
 
 ---
@@ -17,7 +17,7 @@ Agent 包含两条主线：
 1. 并发预测模型协同主线（重点）
 	- Controller 预测并发参数，Agent 接收参数后执行并发候选生成、重试和早停。
 2. 图形界面服务主线
-	- FastAPI 提供 `/ask/graph-steps`、`/ask/echart-file-2` 等接口，返回图片或 HTML 内容。
+	- FastAPI 提供 `/ask/graph-steps` 等接口，返回图片结果。
 
 核心关系：
 
@@ -50,7 +50,7 @@ Agent 包含两条主线：
 
 2. Agent 侧 `main.py` 接收请求后，按接口类型拆成单阶段或双阶段任务。
 
-3. `ask_ai/ask_ai_for_graph.py`、`ask_ai/ask_ai_for_echart.py`、`ask_ai/ask_ai_for_pd.py`
+3. `ask_ai/ask_ai_for_graph.py`、`ask_ai/ask_ai_for_pd.py`
 	- 基于 `concurrent` 创建线程池并行生成候选答案。
 	- 基于 `retries` 在候选内部执行失败重试。
 	- 基于 `ai.wait` 达到成功阈值后提前返回。
@@ -78,7 +78,6 @@ $$
 1. 图形界面入口在 Controller 的 `PyWebIO` 页面，但图形生产由 Agent 负责。
 2. Agent 的图形接口包括：
 	- `/ask/graph-steps`：返回 PNG 及 `image_data(base64)`。
-	- `/ask/echart-file-2`：返回 HTML 内容及文件信息。
 3. Agent 在接口层完成：请求参数校验 -> 并发执行 -> 结果打包。
 4. Controller 收到响应后渲染图片或保存 HTML，形成最终可视化交互。
 
@@ -94,14 +93,13 @@ $$
 
 1. `main.py`：FastAPI 服务入口与 API 编排。
 2. `ask_ai/ask_ai_for_graph.py`：图像图表并发生成链路。
-3. `ask_ai/ask_ai_for_echart.py`：ECharts HTML 并发生成链路。
-4. `ask_ai/ask_ai_for_pd.py`：表格/数据输出并发生成链路。
-5. `ask_ai/ask_api.py`：Prompt 组装、执行与反馈重试闭环。
-6. `data_access/read_db.py`：读取数据表、外键、注释等结构信息。
-7. `data_access/db_conn.py`：数据库连接初始化与验证。
-8. `llm_access/LLM.py`：LLM 客户端初始化。
-9. `pgv/embedding.py`：Embedding 模型加载与设备配置。
-10. `pgv/write_db.py`、`pgv/ask.py`：向量库写入、检索与 schema 同步。
+3. `ask_ai/ask_ai_for_pd.py`：表格/数据输出并发生成链路。
+4. `ask_ai/ask_api.py`：Prompt 组装、执行与反馈重试闭环。
+5. `data_access/read_db.py`：读取数据表、外键、注释等结构信息。
+6. `data_access/db_conn.py`：数据库连接初始化与验证。
+7. `llm_access/LLM.py`：LLM 客户端初始化。
+8. `pgv/embedding.py`：Embedding 模型加载与设备配置。
+9. `pgv/write_db.py`、`pgv/ask.py`：向量库写入、检索与 schema 同步。
 
 ---
 
@@ -111,10 +109,7 @@ $$
 # 1) 启动 Agent 服务
 python main.py
 
-# 2) （可选）验证图形接口
-python ask_test.py
-
-# 3) 再启动 Controller（在线并发预测生效）
+# 2) 再启动 Controller（在线并发预测生效）
 # 在 Controller 项目执行 python main.py
 ```
 

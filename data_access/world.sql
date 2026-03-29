@@ -29,6 +29,8 @@ CREATE TABLE `city`  (
   `Population` int NOT NULL DEFAULT 0,
   PRIMARY KEY (`ID`) USING BTREE,
   INDEX `CountryCode`(`CountryCode` ASC) USING BTREE,
+  INDEX `idx_city_country_population`(`CountryCode` ASC, `Population` ASC) USING BTREE,
+  INDEX `idx_city_name`(`Name` ASC) USING BTREE,
   CONSTRAINT `city_ibfk_1` FOREIGN KEY (`CountryCode`) REFERENCES `country` (`Code`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB AUTO_INCREMENT = 4079 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
@@ -4135,7 +4137,11 @@ CREATE TABLE `country`  (
   `HeadOfState` char(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
   `Capital` int NULL DEFAULT NULL,
   `Code2` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '',
-  PRIMARY KEY (`Code`) USING BTREE
+  PRIMARY KEY (`Code`) USING BTREE,
+  INDEX `idx_country_continent_population`(`Continent` ASC, `Population` ASC) USING BTREE,
+  INDEX `idx_country_region_population`(`Region` ASC, `Population` ASC) USING BTREE,
+  INDEX `idx_country_name`(`Name` ASC) USING BTREE,
+  INDEX `idx_country_capital`(`Capital` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -4392,6 +4398,8 @@ CREATE TABLE `countrylanguage`  (
   `Percentage` decimal(4, 1) NOT NULL DEFAULT 0.0,
   PRIMARY KEY (`CountryCode`, `Language`) USING BTREE,
   INDEX `CountryCode`(`CountryCode` ASC) USING BTREE,
+  INDEX `idx_countrylanguage_language`(`Language` ASC) USING BTREE,
+  INDEX `idx_countrylanguage_official_percentage`(`IsOfficial` ASC, `Percentage` ASC) USING BTREE,
   CONSTRAINT `countryLanguage_ibfk_1` FOREIGN KEY (`CountryCode`) REFERENCES `country` (`Code`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
