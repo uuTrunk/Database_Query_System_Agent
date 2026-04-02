@@ -1,14 +1,25 @@
-.idea
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
 
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Django
 *.log
-llm_access/api_key_qwen.txt
-llm_access/api_key_openai.txt
-output_img/
-cache/
-exports/
-tmp_imgs/*.png
-tmp_imgs/*.html
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
 
-temp.png
-temp.html
+# Project specific
+tmp_imgs/
+readme_img/
+api_key_qwen.txt

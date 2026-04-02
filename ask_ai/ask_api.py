@@ -110,12 +110,20 @@ def _execute_generated_code(ans_code: str, data_dict: Dict[str, pd.DataFrame]) -
         ValueError: If ``process_data`` is missing or not callable.
         Exception: Propagates any exception raised by generated code.
     """
+    import matplotlib
+    matplotlib.use('Agg')
     execution_namespace: Dict[str, Any] = {"__builtins__": __builtins__}
     exec(ans_code, execution_namespace, execution_namespace)
     process_data = execution_namespace.get("process_data")
     if not callable(process_data):
         raise ValueError("Generated code must define a callable function named process_data.")
-    return process_data(data_dict)
+    
+    result = process_data(data_dict)
+    
+    import matplotlib.pyplot as plt
+    plt.close('all')
+    
+    return result
 
 
 

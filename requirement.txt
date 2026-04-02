@@ -17,4 +17,4 @@ pygwalker==0.4.8.7
 PyMySQL==1.1.1
 sentence-transformers==3.0.1
 pgvector==0.2.5
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.9djangorestframework==3.15.1

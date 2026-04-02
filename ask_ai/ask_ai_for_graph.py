@@ -55,8 +55,9 @@ def get_ask_graph_prompt(req, llm, tmp_file=False, img_type=True):
         def process_data(dataframes_dict):
             import pandas as pd
             import math
-            import matplotlib.pyplot as plt
             import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
             import PIL
             # generate code to perform operations here
             return path

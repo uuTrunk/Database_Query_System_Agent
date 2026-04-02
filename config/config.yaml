@@ -1,5 +1,6 @@
+agent_port: 8000
+
 mysql: mysql+pymysql://root:lmx175586@127.0.0.1/world
-# world
 
 ai:
   tries: 1
@@ -7,19 +8,9 @@ ai:
   data_rows: 5
 
 llm:
-  model_provider: qwen #qwen #openai
+  model_provider: qwen
   model: qwen1.5-110b-chat
   url: ""
-
-# qwen1.5-72b-chat   qwen1.5-110b-chat
-# qwen-turbo  qwen-plus   qwen-max   qwen-long
-# https://dashscope.aliyun.com/
-
-# glm-4
-# https://open.bigmodel.cn
-
-
-server_port: 8087
 
 vector:
   enabled: true
@@ -37,3 +28,7 @@ vector:
     database: data_copilot_vector
     user: uucloud
     password: "lmx175586"
+
+auth:
+  username: "admin"
+  password: "lmx175586"
