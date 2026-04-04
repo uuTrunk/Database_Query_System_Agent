@@ -44,6 +44,7 @@ class APITests(TestCase):
         mock_ask_pd.return_value = (None, 2, "failed_prompt", 0.0)
         
         response = self.client.post(self.ask_pd_url, {"question": "Fail question"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
         self.assertEqual(response.data.get("code"), 504)
 
     @patch('api.views.fetch_data')

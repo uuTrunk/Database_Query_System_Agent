@@ -170,7 +170,10 @@ class AskPdView(APIView):
             dict_data = fetch_data()
             result, retries_used, all_prompt, success = ask_ai_for_pd.ask_pd(dict_data, req_data, llm)
             if result is None:
-                return Response(_build_failure(retries_used, all_prompt, extra={"answer": ""}))
+                return Response(
+                    _build_failure(retries_used, all_prompt, extra={"answer": ""}),
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
             return Response({
                 "code": 200, "retries_used": retries_used, "answer": result.to_dict(),
                 "prompt": all_prompt, "success": success
@@ -185,7 +188,10 @@ class AskPdWalkerView(APIView):
             dict_data = fetch_data()
             result, retries_used, all_prompt, success = ask_ai_for_pd.ask_pd(dict_data, req_data, llm)
             if result is None:
-                return Response(_build_failure(retries_used, all_prompt, extra={"html": "", "file": ""}))
+                return Response(
+                    _build_failure(retries_used, all_prompt, extra={"html": "", "file": ""}),
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
             html_content = pandas_html.get_html(result)
             file_path = path_tools.generate_html_path()
             Path(file_path).write_text(html_content, encoding="utf-8")
@@ -203,7 +209,10 @@ class AskGraphView(APIView):
             dict_data = fetch_data()
             result, retries_used, all_prompt, success = ask_ai_for_graph.ask_graph(dict_data, req_data, llm)
             if result is None:
-                return Response(_build_failure(retries_used, all_prompt, extra={"image_data": "", "file": ""}))
+                return Response(
+                    _build_failure(retries_used, all_prompt, extra={"image_data": "", "file": ""}),
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
             b64 = base64.b64encode(Path(result).read_bytes()).decode("utf-8")
             return Response({
                 "code": 200, "retries_used": retries_used, "image_data": b64,
@@ -225,11 +234,17 @@ class AskGraphStepsView(APIView):
             dict_data = fetch_data()
             res1, ret1, p1, s1 = ask_ai_for_pd.ask_pd(dict_data, req1, llm)
             if res1 is None:
-                return Response(_build_failure([ret1, 0], [p1, ""], extra={"image_data": "", "file": ""}))
+                return Response(
+                    _build_failure([ret1, 0], [p1, ""], extra={"image_data": "", "file": ""}),
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
             
             res2, ret2, p2, s2 = ask_ai_for_graph.ask_graph([{"data": res1}], req2, llm)
             if res2 is None:
-                return Response(_build_failure([ret1, ret2], [p1, p2], extra={"image_data": "", "file": ""}))
+                return Response(
+                    _build_failure([ret1, ret2], [p1, p2], extra={"image_data": "", "file": ""}),
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
                 
             b64 = base64.b64encode(Path(res2).read_bytes()).decode("utf-8")
             return Response({
