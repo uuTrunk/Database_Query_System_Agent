@@ -28,6 +28,70 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
+from matplotlib.ticker import MultipleLocator
+
+_FONT_CANDIDATES = [
+    "SimHei",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
+    "WenQuanYi Zen Hei",
+    "Arial Unicode MS",
+]
+
+_FONT_FUZZY_KEYWORDS = [
+    "Noto Sans CJK",
+    "Noto Serif CJK",
+    "Droid Sans Fallback",
+    "AR PL UMing",
+]
+
+
+def _configure_runtime_font() -> Tuple[Optional[str], List[str]]:
+    """Detect and configure an available CJK-capable font at runtime.
+
+    Returns:
+        tuple[Optional[str], list[str]]: (selected_font_or_none, installed_font_names)
+    """
+    # Explicitly scan and register common system font directories, because
+    # some Python runtimes do not auto-load all system fonts.
+    font_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        str(Path.home() / ".fonts"),
+        str(Path.home() / ".local/share/fonts"),
+    ]
+    for font_path in font_manager.findSystemFonts(fontpaths=font_dirs, fontext="ttf"):
+        try:
+            font_manager.fontManager.addfont(font_path)
+        except Exception:
+            continue
+    for font_path in font_manager.findSystemFonts(fontpaths=font_dirs, fontext="otf"):
+        try:
+            font_manager.fontManager.addfont(font_path)
+        except Exception:
+            continue
+
+    installed_font_names = sorted({f.name for f in font_manager.fontManager.ttflist})
+    selected: Optional[str] = None
+    for candidate in _FONT_CANDIDATES:
+        if candidate in installed_font_names:
+            selected = candidate
+            break
+
+    if selected is None:
+        for name in installed_font_names:
+            if any(keyword in name for keyword in _FONT_FUZZY_KEYWORDS):
+                selected = name
+                break
+
+    if selected:
+        plt.rcParams["font.sans-serif"] = [selected, "DejaVu Sans"]
+    else:
+        # Keep a fallback stack even if no explicit CJK font is found.
+        plt.rcParams["font.sans-serif"] = _FONT_CANDIDATES + ["DejaVu Sans"]
+    plt.rcParams["axes.unicode_minus"] = False
+    return selected, installed_font_names
 
 
 @dataclass
@@ -201,37 +265,107 @@ def _safe_mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def _render_figure(out_path: Path, title: str, rows: List[Dict[str, Any]]) -> None:
-    baseline_success = [int(bool(r["baseline_success"])) for r in rows]
-    predict_success = [int(bool(r["predict_success"])) for r in rows]
-    baseline_latency = [float(r["baseline_latency_ms"]) for r in rows]
-    predict_latency = [float(r["predict_latency_ms"]) for r in rows]
-    predict_threads = [int(r["predicted_threads"]) for r in rows]
+def _parse_static_levels(raw_levels: str) -> List[int]:
+    levels: List[int] = []
+    for item in str(raw_levels).split(","):
+        token = item.strip()
+        if not token:
+            continue
+        try:
+            value = int(token)
+        except ValueError:
+            continue
+        if 1 <= value <= 5 and value not in levels:
+            levels.append(value)
+    if not levels:
+        levels = [1, 2, 3, 4, 5]
+    # Static benchmark must include single-thread level for baseline comparison.
+    if 1 not in levels:
+        levels.append(1)
+    return sorted(levels)
 
-    success_rate_baseline = 100.0 * _safe_mean(baseline_success)
-    success_rate_predict = 100.0 * _safe_mean(predict_success)
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.8))
+def _build_static_metrics(static_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[int, List[Dict[str, Any]]] = {}
+    for row in static_rows:
+        c = int(row["static_concurrent"])
+        grouped.setdefault(c, []).append(row)
 
-    axes[0].bar(["Single(1)", "BERT Predict"], [success_rate_baseline, success_rate_predict], color=["#6C8EBF", "#82B366"])
-    axes[0].set_ylim(0, 100)
-    axes[0].set_ylabel("Success Rate (%)")
-    axes[0].set_title("Success Rate Comparison")
+    metrics: List[Dict[str, Any]] = []
+    for c in sorted(grouped.keys()):
+        rows = grouped[c]
+        success_rate = 100.0 * _safe_mean([int(r["static_success"]) for r in rows])
+        avg_latency = _safe_mean([float(r["static_latency_ms"]) for r in rows])
+        metrics.append(
+            {
+                "static_concurrent": c,
+                "samples": len(rows),
+                "success_rate_pct": round(success_rate, 3),
+                "avg_latency_ms": round(avg_latency, 3),
+            }
+        )
+    return metrics
 
-    axes[1].bar(
-        ["Single(1)", "BERT Predict"],
-        [_safe_mean(baseline_latency), _safe_mean(predict_latency)],
-        color=["#6C8EBF", "#82B366"],
-    )
-    axes[1].set_ylabel("Avg Latency (ms)")
-    axes[1].set_title("Latency Comparison")
 
-    bins = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]
-    axes[2].hist(predict_threads, bins=bins, rwidth=0.85, color="#F6B26B", edgecolor="black")
-    axes[2].set_xticks([1, 2, 3, 4, 5])
-    axes[2].set_xlabel("Predicted Concurrency")
-    axes[2].set_ylabel("Count")
-    axes[2].set_title("Predicted Threads Distribution")
+def _render_line_figure(
+    out_path: Path,
+    title: str,
+    static_metrics: List[Dict[str, Any]],
+    predicted_success_rate: float,
+) -> None:
+    labels = [str(int(m["static_concurrent"])) for m in static_metrics] + ["并发预测调度"]
+    success_values = [float(m["success_rate_pct"]) for m in static_metrics] + [float(predicted_success_rate)]
+    x = list(range(len(labels)))
+
+    fig, ax = plt.subplots(1, 1, figsize=(9, 5.2))
+    ax.plot(x, success_values, marker="o", linewidth=2.2, color="#3C78D8")
+    ax.set_xlabel("并发策略")
+    ax.set_ylabel("成功率(%)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylim(0, 100)
+    ax.grid(True, alpha=0.3)
+    ax.set_title("静态并发度与并发预测调度的成功率变化")
+
+    fig.suptitle(title)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=160)
+    plt.close(fig)
+
+
+def _render_bar_figure(
+    out_path: Path,
+    title: str,
+    static_metrics: List[Dict[str, Any]],
+    predicted_success_rate: float,
+    predicted_avg_latency: float,
+) -> None:
+    labels = [str(int(m["static_concurrent"])) for m in static_metrics] + ["并发预测调度"]
+    success_values = [float(m["success_rate_pct"]) for m in static_metrics] + [float(predicted_success_rate)]
+    latency_values = [float(m["avg_latency_ms"]) for m in static_metrics] + [float(predicted_avg_latency)]
+    x = list(range(len(labels)))
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.2))
+
+    axes[0].bar(x, success_values, color="#6FA8DC")
+    axes[0].set_xlabel("并发策略")
+    axes[0].set_ylabel("成功率(%)")
+    axes[0].set_ylim(80, 100)
+    axes[0].yaxis.set_major_locator(MultipleLocator(2))
+    axes[0].yaxis.set_minor_locator(MultipleLocator(1))
+    axes[0].grid(True, axis="y", which="major", alpha=0.3)
+    axes[0].grid(True, axis="y", which="minor", alpha=0.15)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(labels)
+    axes[0].set_title("不同并发策略成功率对比")
+
+    axes[1].bar(x, latency_values, color="#F6B26B")
+    axes[1].set_xlabel("并发策略")
+    axes[1].set_ylabel("平均延迟(ms)")
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(labels)
+    axes[1].set_title("不同并发策略平均延迟对比")
 
     fig.suptitle(title)
     fig.tight_layout()
@@ -279,7 +413,17 @@ def _write_csv(out_path: Path, rows: List[Dict[str, Any]]) -> None:
             writer.writerow(row)
 
 
-def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]]:
+def _write_static_metrics_csv(out_path: Path, metrics: List[Dict[str, Any]]) -> None:
+    fieldnames = ["static_concurrent", "samples", "success_rate_pct", "avg_latency_ms"]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in metrics:
+            writer.writerow(row)
+
+
+def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Path, Dict[str, Any]]:
     _preflight(
         agent_base=args.agent_base,
         prompt_endpoint=args.agent_prompt_endpoint,
@@ -298,8 +442,10 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
 
     run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"exp_{run_stamp}_{uuid.uuid4().hex[:8]}"
+    static_levels = _parse_static_levels(args.static_concurrency_levels)
 
     all_rows: List[Dict[str, Any]] = []
+    static_rows: List[Dict[str, Any]] = []
 
     for i, question in enumerate(questions, start=1):
         predicted_threads, predicted_score, predict_api_meta = _call_predict(
@@ -309,14 +455,28 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
             timeout=args.timeout,
         )
 
-        baseline = _call_agent_pd(
-            agent_base=args.agent_base,
-            agent_endpoint=args.agent_pd_endpoint,
-            question=question,
-            concurrent_workers=args.baseline_concurrent,
-            retries=args.retries,
-            timeout=args.timeout,
-        )
+        static_result_by_c: Dict[int, AgentCallResult] = {}
+        for static_c in static_levels:
+            static_result = _call_agent_pd(
+                agent_base=args.agent_base,
+                agent_endpoint=args.agent_pd_endpoint,
+                question=question,
+                concurrent_workers=static_c,
+                retries=args.retries,
+                timeout=args.timeout,
+            )
+            static_result_by_c[static_c] = static_result
+            static_rows.append(
+                {
+                    "question_index": i,
+                    "static_concurrent": static_c,
+                    "static_success": int(static_result.success),
+                    "static_latency_ms": round(static_result.latency_ms, 3),
+                }
+            )
+
+        baseline_c_used = 1 if 1 in static_result_by_c else min(static_result_by_c.keys())
+        baseline = static_result_by_c[baseline_c_used]
 
         predicted = _call_agent_pd(
             agent_base=args.agent_base,
@@ -334,7 +494,7 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
             "question": question,
             "predicted_score": round(predicted_score, 6),
             "predicted_threads": predicted_threads,
-            "baseline_concurrent": args.baseline_concurrent,
+            "baseline_concurrent": baseline_c_used,
             "baseline_success": int(baseline.success),
             "baseline_http_status": baseline.http_status,
             "baseline_api_code": baseline.api_code,
@@ -367,7 +527,8 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
 
     predicted_threads_unique = sorted({int(r["predicted_threads"]) for r in all_rows})
     predicted_threads_is_singleton = len(predicted_threads_unique) == 1
-    invalid_comparison_round = predicted_threads_is_singleton and predicted_threads_unique[0] == int(args.baseline_concurrent)
+    baseline_concurrency = 1
+    invalid_comparison_round = predicted_threads_is_singleton and predicted_threads_unique[0] == baseline_concurrency
     comparison_round_validity = "无效对比轮" if invalid_comparison_round else "有效对比轮"
     invalid_reason = "预测并发整轮单一且与基线并发完全相同" if invalid_comparison_round else ""
 
@@ -379,12 +540,31 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
     results_dir = Path(args.results_dir).resolve()
     figures_dir = Path(args.figures_dir).resolve()
     csv_path = results_dir / f"{run_id}.csv"
-    fig_path = figures_dir / f"{run_id}.png"
+    static_metrics_csv_path = results_dir / f"{run_id}_static_metrics.csv"
+    line_fig_path = figures_dir / f"{run_id}_line.png"
+    bar_fig_path = figures_dir / f"{run_id}_bar.png"
 
     _write_csv(csv_path, all_rows)
+    static_metrics = _build_static_metrics(static_rows)
+    _write_static_metrics_csv(static_metrics_csv_path, static_metrics)
 
-    title = f"BERT Concurrency Experiment | n={len(all_rows)} | retries={args.retries}"
-    _render_figure(fig_path, title=title, rows=all_rows)
+    predicted_success_rate = 100.0 * _safe_mean([int(r["predict_success"]) for r in all_rows])
+    predicted_avg_latency = _safe_mean([float(r["predict_latency_ms"]) for r in all_rows])
+
+    title = f"并发策略实验对比 | 样本数={len(all_rows)} | 重试={args.retries}"
+    _render_line_figure(
+        line_fig_path,
+        title=title,
+        static_metrics=static_metrics,
+        predicted_success_rate=predicted_success_rate,
+    )
+    _render_bar_figure(
+        bar_fig_path,
+        title=title,
+        static_metrics=static_metrics,
+        predicted_success_rate=predicted_success_rate,
+        predicted_avg_latency=predicted_avg_latency,
+    )
 
     baseline_success_rate = 100.0 * _safe_mean([int(r["baseline_success"]) for r in all_rows])
     predict_success_rate = 100.0 * _safe_mean([int(r["predict_success"]) for r in all_rows])
@@ -404,11 +584,16 @@ def run_experiment(args: argparse.Namespace) -> Tuple[Path, Path, Dict[str, Any]
         "predicted_threads_is_singleton": predicted_threads_is_singleton,
         "comparison_round_validity": comparison_round_validity,
         "comparison_round_invalid_reason": invalid_reason,
+        "static_concurrency_levels": static_levels,
+        "baseline_source": "static_concurrency",
+        "static_metrics": static_metrics,
         "csv": str(csv_path),
-        "figure": str(fig_path),
+        "static_metrics_csv": str(static_metrics_csv_path),
+        "line_figure": str(line_fig_path),
+        "bar_figure": str(bar_fig_path),
     }
 
-    return csv_path, fig_path, summary
+    return csv_path, line_fig_path, bar_fig_path, summary
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -426,7 +611,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-mode", choices=["head", "random"], default="head", help="Question sampling mode")
     parser.add_argument("--seed", type=int, default=2026, help="Random seed when sample-mode=random")
 
-    parser.add_argument("--baseline-concurrent", type=int, default=1, help="Baseline fixed concurrency")
+    parser.add_argument(
+        "--static-concurrency-levels",
+        default="1,2,3,4,5",
+        help="Comma-separated static concurrency levels for static benchmark plots; level 1 is always included",
+    )
     parser.add_argument("--retries", type=int, default=1, help="Retries passed to Agent")
     parser.add_argument("--timeout", type=float, default=180.0, help="Per request timeout in seconds")
     parser.add_argument("--sleep-between", type=float, default=0.0, help="Sleep seconds between question cases")
@@ -438,14 +627,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    selected_font, _ = _configure_runtime_font()
+    if selected_font:
+        print(f"[font] Matplotlib current matched Chinese font: {selected_font}")
+    else:
+        print("[font] No dedicated Chinese font matched. Using fallback stack; Chinese text may appear as tofu blocks.")
+
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    csv_path, fig_path, summary = run_experiment(args)
+    csv_path, line_fig_path, bar_fig_path, summary = run_experiment(args)
 
     print("Experiment completed.")
     print(f"CSV: {csv_path}")
-    print(f"Figure: {fig_path}")
+    print(f"Line Figure: {line_fig_path}")
+    print(f"Bar Figure: {bar_fig_path}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
