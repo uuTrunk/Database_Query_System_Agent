@@ -97,7 +97,7 @@ def _build_execution_feedback(
 
 
 def _execute_generated_code(ans_code: str, data_dict: Dict[str, pd.DataFrame]) -> Any:
-    """Execute generated Python code and call ``process_data``.
+    """Execute generated Python code in an isolated subprocess sandbox.
 
     Args:
         ans_code (str): Generated Python function code.
@@ -110,20 +110,235 @@ def _execute_generated_code(ans_code: str, data_dict: Dict[str, pd.DataFrame]) -
         ValueError: If ``process_data`` is missing or not callable.
         Exception: Propagates any exception raised by generated code.
     """
-    import matplotlib
-    matplotlib.use('Agg')
-    execution_namespace: Dict[str, Any] = {"__builtins__": __builtins__}
-    exec(ans_code, execution_namespace, execution_namespace)
-    process_data = execution_namespace.get("process_data")
-    if not callable(process_data):
-        raise ValueError("Generated code must define a callable function named process_data.")
-    
-    result = process_data(data_dict)
-    
-    import matplotlib.pyplot as plt
-    plt.close('all')
-    
-    return result
+    import os
+    import pickle
+    import signal
+    import subprocess
+    import sys
+    import tempfile
+    import textwrap
+
+    payload = pickle.dumps((ans_code, data_dict), protocol=pickle.HIGHEST_PROTOCOL)
+    error_fd, error_path = tempfile.mkstemp(prefix="sandbox_error_", suffix=".bin")
+    os.close(error_fd)
+
+    sandbox_code = textwrap.dedent(
+        """
+        import pickle
+        import os
+        import resource
+        import sys
+        import traceback
+
+        _ALLOWED_MODULES = {
+            "collections",
+            "datetime",
+            "functools",
+            "io",
+            "itertools",
+            "math",
+            "matplotlib",
+            "matplotlib.pyplot",
+            "numpy",
+            "os",
+            "pandas",
+            "pathlib",
+            "PIL",
+            "re",
+            "seaborn",
+            "statistics",
+        }
+
+        def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+            root_name = name.split(".", 1)[0]
+            if root_name not in _ALLOWED_MODULES:
+                raise ImportError(f"Import of {name!r} is blocked in sandboxed execution.")
+            return __import__(name, globals, locals, fromlist, level)
+
+        _SAFE_BUILTINS = {
+            "__import__": _restricted_import,
+            "__build_class__": __build_class__,
+            "abs": abs,
+            "all": all,
+            "any": any,
+            "bool": bool,
+            "dict": dict,
+            "enumerate": enumerate,
+            "Exception": Exception,
+            "BaseException": BaseException,
+            "float": float,
+            "getattr": getattr,
+            "hasattr": hasattr,
+            "int": int,
+            "isinstance": isinstance,
+            "issubclass": issubclass,
+            "KeyError": KeyError,
+            "len": len,
+            "list": list,
+            "map": map,
+            "max": max,
+            "min": min,
+            "object": object,
+            "print": print,
+            "range": range,
+            "reversed": reversed,
+            "set": set,
+            "slice": slice,
+            "sorted": sorted,
+            "str": str,
+            "sum": sum,
+            "tuple": tuple,
+            "TypeError": TypeError,
+            "ValueError": ValueError,
+            "zip": zip,
+            "__name__": "builtins",
+        }
+
+        def _limit_resources() -> None:
+            try:
+                resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+            except Exception:
+                pass
+            try:
+                memory_limit = 4 * 1024 * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+            except Exception:
+                pass
+
+        def main() -> None:
+            _limit_resources()
+            ans_code, data_dict = pickle.loads(sys.stdin.buffer.read())
+
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import pandas as pd
+
+            execution_namespace = {
+                "__builtins__": _SAFE_BUILTINS,
+                "pd": pd,
+                "plt": plt,
+            }
+
+            try:
+                exec(ans_code, execution_namespace, execution_namespace)
+                process_data = execution_namespace.get("process_data")
+                if not callable(process_data):
+                    raise ValueError(
+                        "Generated code must define a callable function named process_data."
+                    )
+
+                result = process_data(data_dict)
+                sys.stdout.buffer.write(
+                    pickle.dumps(("ok", result), protocol=pickle.HIGHEST_PROTOCOL)
+                )
+            finally:
+                plt.close("all")
+
+        if __name__ == "__main__":
+            try:
+                main()
+            except Exception as exc:
+                payload = pickle.dumps(
+                    (
+                        "error",
+                        type(exc).__name__,
+                        str(exc),
+                        traceback.format_exc(),
+                    ),
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+                error_path = os.environ.get("SANDBOX_ERROR_PATH")
+                if error_path:
+                    try:
+                        with open(error_path, "wb") as error_file:
+                            error_file.write(payload)
+                    except Exception:
+                        pass
+                os.write(1, payload)
+                os._exit(1)
+        """
+    ).strip()
+
+    process = subprocess.Popen(
+        [sys.executable, "-I", "-c", sandbox_code],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={**os.environ, "SANDBOX_ERROR_PATH": error_path},
+        start_new_session=True,
+    )
+
+    try:
+        stdout_bytes, stderr_bytes = process.communicate(input=payload, timeout=30)
+    except subprocess.TimeoutExpired as timeout_error:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            process.kill()
+        stdout_bytes, stderr_bytes = process.communicate()
+        raise TimeoutError("Sandboxed code execution timed out after 30 seconds.") from timeout_error
+
+    if stdout_bytes:
+        try:
+            status, *details = pickle.loads(stdout_bytes)
+        except Exception as exc:
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+            structured_error = None
+            if os.path.exists(error_path):
+                try:
+                    with open(error_path, "rb") as error_file:
+                        error_bytes = error_file.read()
+                    if error_bytes:
+                        status, *details = pickle.loads(error_bytes)
+                        if status == "error" and len(details) >= 3:
+                            error_type, error_message, traceback_text = details[0], details[1], details[2]
+                            structured_error = RuntimeError(
+                                f"Sandboxed execution failed with {error_type}: {error_message}\n{traceback_text}"
+                            )
+                except (OSError, pickle.PickleError, EOFError, ValueError):
+                    pass
+            if structured_error is not None:
+                raise structured_error from exc
+            raise RuntimeError(
+                "Sandboxed execution produced an unreadable response. "
+                f"stderr: {stderr_text}"
+            ) from exc
+
+        if status == "ok":
+            return details[0]
+
+        if status == "error" and len(details) >= 3:
+            error_type, error_message, traceback_text = details[0], details[1], details[2]
+            raise RuntimeError(
+                f"Sandboxed execution failed with {error_type}: {error_message}\n{traceback_text}"
+            )
+
+    stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+    if process.returncode != 0:
+        structured_error = None
+        if os.path.exists(error_path):
+            try:
+                with open(error_path, "rb") as error_file:
+                    error_bytes = error_file.read()
+                if error_bytes:
+                    status, *details = pickle.loads(error_bytes)
+                    if status == "error" and len(details) >= 3:
+                        error_type, error_message, traceback_text = details[0], details[1], details[2]
+                        structured_error = RuntimeError(
+                            f"Sandboxed execution failed with {error_type}: {error_message}\n{traceback_text}"
+                        )
+            except (OSError, pickle.PickleError, EOFError, ValueError):
+                pass
+        if structured_error is not None:
+            raise structured_error
+        raise RuntimeError(
+            "Sandboxed execution failed without returning a structured error. "
+            f"stderr: {stderr_text}"
+        )
+
+    raise RuntimeError("Sandboxed execution finished without returning a result.")
 
 
 
