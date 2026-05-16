@@ -1,18 +1,24 @@
+# Git
 .git
 .gitignore
-.vscode
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# 日志和数据库
 *.log
-.pytest_cache
-.mypy_cache
-.ruff_cache
-.venv
-venv
-.env
-tmp_imgs
-experiment/results
-experiment/figures
-test
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
