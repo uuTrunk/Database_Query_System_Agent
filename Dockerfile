@@ -3,21 +3,26 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# 系统依赖层。合并更新与清理命令，减少镜像层数和体积
+# 1. 统一系统依赖安装与清理
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 依赖文件隔离层。只要 requirement.txt 不变，后续的 pip install 就会使用缓存
+# 2. 拷贝大一统的 requirement.txt
 COPY requirement.txt .
 
-# BuildKit 缓存挂载。即使 requirement 变了，也能利用挂载缓存加速下载
+# 3. 利用 BuildKit 挂载缓存，执行全局依赖安装
+# （此行及以上的代码必须与 Training 项目一字不差）
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirement.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    pip install --no-cache-dir -r requirement.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 最常变动的业务代码放在最后面
+# ==================== 缓存复用分水岭 ====================
+
+# 4. 拷贝 Agent 独有的业务代码
 COPY . .
 
+# 暴露接口
 EXPOSE 8000
 
+# 启动命令
 CMD ["uvicorn", "agent_backend.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
